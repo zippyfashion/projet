@@ -1,0 +1,579 @@
+<!DOCTYPE html> 
+
+<html lang="fr"> 
+
+<head> 
+
+<meta charset="UTF-8"> 
+
+ 
+
+<!-- Leaflet --> 
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/> 
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script> 
+
+ 
+
+<!-- Chart.js --> 
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script> 
+
+ 
+
+<style> 
+
+body { 
+
+    margin:0; 
+
+    font-family: Arial; 
+
+    background:#f5f6fa; 
+
+} 
+
+ 
+
+header { 
+
+    background:#1e293b; 
+
+    color:white; 
+
+    padding:15px; 
+
+    font-size:20px; 
+
+} 
+
+ 
+
+#map { 
+
+    width:100%; 
+
+    height:60vh; 
+
+} 
+
+ 
+
+#chartsWrapper { 
+
+    display:flex; 
+
+    justify-content:center; 
+
+    gap:20px; 
+
+    padding:15px; 
+
+} 
+
+ 
+
+/* Graph box */ 
+
+.chartBox { 
+
+    background:white; 
+
+    padding:15px; 
+
+    border-radius:10px; 
+
+    width:500px; 
+
+} 
+
+ 
+
+/* Legende */ 
+
+#legend { 
+
+    background:white; 
+
+    padding:10px; 
+
+    border-radius:10px; 
+
+    width:180px; 
+
+} 
+
+ 
+
+.legend-item { 
+
+    display:flex; 
+
+    align-items:center; 
+
+    margin-bottom:8px; 
+
+} 
+
+ 
+
+.color-box { 
+
+    width:15px; 
+
+    height:15px; 
+
+    margin-right:8px; 
+
+    border:1px solid black; 
+
+} 
+
+ 
+
+button { 
+
+    padding:8px; 
+
+    cursor:pointer; 
+
+} 
+
+</style> 
+
+</head> 
+
+ 
+
+<body> 
+
+ 
+
+<header>Dashboard Capteurs</header> 
+
+ 
+
+<div id="map"></div> 
+
+ 
+
+<div id="chartsWrapper"> 
+
+ 
+
+<!-- GRAPHE --> 
+
+<div class="chartBox"> 
+
+ 
+
+<h3 id="selectedId">Cliquez sur un point pour commencer</h3> 
+
+<p id="airQualityText"></p> 
+
+ 
+
+<button class="tabBtn active" data-tab="temp">Température</button> 
+
+<button class="tabBtn" data-tab="hum">Humidité</button> 
+
+ 
+
+<canvas id="lineChart"></canvas> 
+
+ 
+
+</div> 
+
+ 
+
+<!-- LEGENDE --> 
+
+<div id="legend"> 
+
+    <h4>Légende air</h4> 
+
+ 
+
+    <div class="legend-item"> 
+
+        <div class="color-box" style="background:#00ffcc"></div> Excellent 
+
+    </div> 
+
+    <div class="legend-item"> 
+
+        <div class="color-box" style="background:#00ff00"></div> Très bon 
+
+    </div> 
+
+    <div class="legend-item"> 
+
+        <div class="color-box" style="background:#88ff88"></div> Bon 
+
+    </div> 
+
+    <div class="legend-item"> 
+
+        <div class="color-box" style="background:#ffff00"></div> Moyen 
+
+    </div> 
+
+    <div class="legend-item"> 
+
+        <div class="color-box" style="background:#ff0000"></div> Mauvais 
+
+    </div> 
+
+</div> 
+
+ 
+
+</div> 
+
+ 
+
+<script> 
+
+ 
+
+// 🔥 FIREBASE 
+
+const BASE = "https://projet-nem-62a33-default-rtdb.europe-west1.firebasedatabase.app/"; 
+
+ 
+
+// 🗺️ CARTE 
+
+const map = L.map('map').setView([45.1885, 5.7245], 13); 
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map); 
+
+ 
+
+let markers = {}; 
+
+let selectedMarkerId = null; 
+
+ 
+
+// 📊 HISTORIQUE 
+
+let history = {}; 
+
+let chart; 
+
+ 
+
+// 📊 GRAPH 
+
+function updateGraph(id, mode="temp") { 
+
+ 
+
+    if(!chart){ 
+
+        chart = new Chart(document.getElementById("lineChart"), { 
+
+            type:"line", 
+
+            data:{ labels:[], datasets:[] } 
+
+        }); 
+
+    } 
+
+ 
+
+    let source = history[id]; 
+
+    if (!source) return; 
+
+ 
+
+    chart.data.labels = source.time; 
+
+ 
+
+    chart.data.datasets = [{ 
+
+        label: mode === "temp" ? "Température (°C)" : "Humidité (%)", 
+
+        data: mode === "temp" ? source.temp : source.hum, 
+
+        borderColor: mode === "temp" ? "red" : "blue", 
+
+        fill:false 
+
+    }]; 
+
+ 
+
+    chart.update(); 
+
+} 
+
+ 
+
+// 🎨 QUALITÉ AIR TEXTE 
+
+function getAirQualityText(a) { 
+
+    if (a < 20) return "Qualité de l’air : Excellente ✅"; 
+
+    if (a < 40) return "Qualité de l’air : Très bonne 👍"; 
+
+    if (a < 60) return "Qualité de l’air : Bonne 🙂"; 
+
+    if (a < 80) return "Qualité de l’air : Moyenne ⚠️"; 
+
+    return "Qualité de l’air : Mauvaise ❌"; 
+
+} 
+
+ 
+
+// 🎨 COULEUR 
+
+function getAirColor(a) { 
+
+    if (a < 20) return "#00ffcc"; 
+
+    if (a < 40) return "#00ff00"; 
+
+    if (a < 60) return "#88ff88"; 
+
+    if (a < 80) return "#ffff00"; 
+
+    return "#ff0000"; 
+
+} 
+
+ 
+
+// 📡 DATA (carte) 
+
+function lireData() { 
+
+    fetch(BASE + "data.json") 
+
+    .then(r=>r.json()) 
+
+    .then(data=>{ 
+
+ 
+
+        if(!data) return; 
+
+ 
+
+        for(let id in data){ 
+
+ 
+
+            let d = data[id]; 
+
+ 
+
+            if(!markers[id]){ 
+
+                markers[id] = L.circleMarker([d.lat,d.lon], { 
+
+                    radius:10, 
+
+                    color:"#000", 
+
+                    weight:2, 
+
+                    fillOpacity:0.8 
+
+                }).addTo(map); 
+
+ 
+
+                markers[id].on("click", ()=>{ 
+
+ 
+
+                    selectedMarkerId = id; 
+
+ 
+
+                    document.getElementById("selectedId").innerText = 
+
+                        "Capteur sélectionné : " + id; 
+
+ 
+
+                    document.getElementById("airQualityText").innerText = 
+
+                        getAirQualityText(d.air); 
+
+ 
+
+                    updateGraph(id, getMode()); 
+
+                }); 
+
+            } 
+
+ 
+
+            markers[id].setLatLng([d.lat,d.lon]); 
+
+ 
+
+            let color = getAirColor(d.air); 
+
+ 
+
+            markers[id].setStyle({ 
+
+                color:color, 
+
+                fillColor:color 
+
+            }); 
+
+        } 
+
+    }); 
+
+} 
+
+ 
+
+// 📈 HISTORY 
+
+function lireHistory() { 
+
+ 
+
+    fetch(BASE + "history.json") 
+
+    .then(r=>r.json()) 
+
+    .then(data=>{ 
+
+ 
+
+        if(!data) return; 
+
+ 
+
+        history = {}; 
+
+ 
+
+        for(let key in data){ 
+
+ 
+
+            let d = data[key]; 
+
+ 
+
+            if(!history[d.id]){ 
+
+                history[d.id] = { time:[], temp:[], hum:[] }; 
+
+            } 
+
+ 
+
+            history[d.id].time.push(d.time); 
+
+            history[d.id].temp.push(d.temp); 
+
+            history[d.id].hum.push(d.air); 
+
+ 
+
+            if(history[d.id].time.length > 20){ 
+
+                history[d.id].time.shift(); 
+
+                history[d.id].temp.shift(); 
+
+                history[d.id].hum.shift(); 
+
+            } 
+
+        } 
+
+ 
+
+        if(selectedMarkerId !== null){ 
+
+            updateGraph(selectedMarkerId, getMode()); 
+
+        } 
+
+    }); 
+
+} 
+
+ 
+
+// 🔘 MODE 
+
+function getMode(){ 
+
+    return document.querySelector(".tabBtn.active").dataset.tab; 
+
+} 
+
+ 
+
+// 🔘 BOUTONS 
+
+document.querySelectorAll(".tabBtn").forEach(btn=>{ 
+
+    btn.addEventListener("click", ()=>{ 
+
+        document.querySelectorAll(".tabBtn").forEach(b=>b.classList.remove("active")); 
+
+        btn.classList.add("active"); 
+
+ 
+
+        if(selectedMarkerId !== null){ 
+
+            updateGraph(selectedMarkerId, getMode()); 
+
+        } 
+
+    }); 
+
+}); 
+
+ 
+
+// 🔁 LOOP 
+
+setInterval(()=>{ 
+
+    lireData(); 
+
+    lireHistory(); 
+
+}, 5000); 
+
+ 
+
+lireData(); 
+
+lireHistory(); 
+
+ 
+
+</script> 
+
+ 
+
+</body> 
+
+</html> 
+
+ 
